@@ -70,8 +70,13 @@ const IndPicker = Component.extend({
             if (_this._highlighted || !frame) return;
 
             // should be replaced by dimension of entity set for this hook (if use == property)
-            const dimension = mdl.getEntity().getDimension();
-            const _highlightedEntity = marker.getHighlighted(dimension);
+            let _highlightedEntity;
+            if (_this.multiDim && !mdl.isDiscrete()) {
+              _highlightedEntity = marker.getHighlighted();
+            } else {
+              const dimension = mdl.getEntity().getDimension();
+              _highlightedEntity = marker.getHighlighted(dimension);
+            }
             if (_highlightedEntity.length) {
 
               let value = _this.multiDim && !mdl.isDiscrete() ?
