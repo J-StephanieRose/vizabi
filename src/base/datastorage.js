@@ -22,122 +22,127 @@ class Queue {
     this.delayedAction = null;
     this.whatId = whatId;
     this.queue = framesArray.slice(0); //clone array
-    const queue = this;
+    this._context = _context;
     //put the last element to the start of the queue because we are likely to need it first
     this.queue.splice(0, 0, this.queue.splice(this.queue.length - 1, 1)[0]);
     this.key = 0;
-    this.mute = function() {
-      this.isActive = false;
-      this.delayedAction = Promise.resolve.bind(Promise);
-    };
+  }
 
-    this.unMute = function() {
-      this.isActive = true;
-      if (typeof this.delayedAction === "function") {
-        this.delayedAction();
-      }
-      this.delayedAction = null;
-      if (this.forcedQueue.length == 0 && this.queue.length == 0) {
-        _context._unmuteQueue();
-      }
-    };
-    this.frameComplete = function(frameName) { //function called after build each frame with name of frame build
-      let i;
-      if (queue.defaultCallbacks.length > 0) {
-        for (i = 0; i < queue.defaultCallbacks.length; i++) {
-          queue.defaultCallbacks[i](frameName);
-        }
-      }
-      if (queue.callbacks[frameName] && queue.callbacks[frameName].length > 0) {
-        for (i = 0; i < queue.callbacks[frameName].length; i++) {
-          queue.callbacks[frameName][i]();
-        }
-      }
-    };
-    this._waitingForActivation = function() {
-      const _this = this;
-      return new Promise((resolve, reject) => {
-        if (_this.isActive) {
-          return resolve();
-        }
-        _this.delayedAction = resolve;
-      });
-    };
+  mute() {
+    this.isActive = false;
+    this.delayedAction = () => Promise.resolve();
+  }
 
-    this._getNextFrameName = function() {
-      let frameName = null;
-      if (this.forcedQueue.length > 0 || this.queue.length > 0) {
-        if (this.forcedQueue.length > 0) {
-          frameName = this.forcedQueue.shift();
-        } else {
-          if (this.forcedQueue.length == 0 && this.key >= this.queue.length - 1) {
-            this.key = 0;
-          }
-          frameName = this.queue.splice(this.key, 1).pop();
-        }
+  unMute() {
+    this.isActive = true;
+    if (typeof this.delayedAction === "function") {
+      this.delayedAction();
+    }
+    this.delayedAction = null;
+    if (this.forcedQueue.length === 0 && this.queue.length === 0) {
+      this._context._unmuteQueue();
+    }
+  }
+
+  frameComplete(frameName) {
+    //function called after build each frame with name of frame build
+    let i;
+    if (this.defaultCallbacks.length > 0) {
+      for (i = 0; i < this.defaultCallbacks.length; i++) {
+        this.defaultCallbacks[i](frameName);
+      }
+    }
+    if (this.callbacks[frameName] && this.callbacks[frameName].length > 0) {
+      for (i = 0; i < this.callbacks[frameName].length; i++) {
+        this.callbacks[frameName][i]();
+      }
+    }
+  }
+
+  _waitingForActivation() {
+    return new Promise(resolve => {
+      if (this.isActive) {
+        return resolve();
+      }
+      this.delayedAction = resolve;
+    });
+  }
+
+  _getNextFrameName() {
+    let frameName = null;
+    if (this.forcedQueue.length > 0 || this.queue.length > 0) {
+      if (this.forcedQueue.length > 0) {
+        frameName = this.forcedQueue.shift();
       } else {
-        _context._unmuteQueue();
+        if (!this.forcedQueue.length && this.key >= this.queue.length - 1) {
+          this.key = 0;
+        }
+        frameName = this.queue.splice(this.key, 1).pop();
       }
-      return frameName;
-    };
-    this.checkForcedFrames = function() {
-      if (this.forcedQueue.length > 0) return;
-      _context._checkForcedQueuesExists();
-    };
+    } else {
+      this._context._unmuteQueue();
+    }
+    return frameName;
+  }
 
+  checkForcedFrames() {
+    if (this.forcedQueue.length > 0) return;
+    this._context._checkForcedQueuesExists();
+  }
+
+
+  getNext() {
     // returns the next frame in a queue
-    this.getNext = function() {
-      const _this = this;
-      return new Promise((resolve, reject) => {
-        _this.checkForcedFrames();
-        if (_this.isActive) {
-          resolve(_this._getNextFrameName());
-        } else {
-          _this._waitingForActivation().then(() => {
-            resolve(_this._getNextFrameName());
-          });
-        }
+    return new Promise(resolve => {
+      this.checkForcedFrames();
+      if (this.isActive) {
+        return resolve(this._getNextFrameName());
+      }
+
+      this._waitingForActivation().then(() => {
+        resolve(this._getNextFrameName());
       });
-    };
 
+    });
+  }
+
+  forceFrame(frameName, cb) {
     // force the particular frame up the queue
-    this.forceFrame = function(frameName, cb) {
-      const objIndexOf = function(obj, need) {
-        const search = need.toString();
-        let index = -1;
-        for (let i = 0, len = obj.length; i < len; i++) {
-          if (obj[i].toString() == search) {
-            index = i;
-            break;
-          }
-        }
-        return index;
-      };
-      if (this.callbacks[frameName]) {
-
-        this.callbacks[frameName].push(cb);
-      } else {
-        const newKey = objIndexOf(this.queue, frameName);//this.queue.indexOf(frameName.toString());
-        if (newKey !== -1) {
-          this.forcedQueue.unshift(this.queue.splice(newKey, 1).pop());
-          _context._muteAllQueues(this.whatId);
-          this.unMute();
-          if (typeof cb === "function") {
-            if (typeof this.callbacks[frameName] !== "object") {
-              this.callbacks[frameName] = [];
-            }
-            this.callbacks[frameName].push(cb);
-          }
-          this.key = newKey; //set key to next year after gorced element (preload if user click play)
-        } else {
-          if (typeof this.callbacks[frameName] === "object") {
-            this.callbacks[frameName].push(cb);
-          } else {
-            this.callbacks[frameName] = [cb];
-          }
+    const objIndexOf = function(obj, need) {
+      const search = need.toString();
+      let index = -1;
+      for (let i = 0, len = obj.length; i < len; i++) {
+        if (obj[i].toString() === search) {
+          index = i;
+          break;
         }
       }
+      return index;
     };
+    if (this.callbacks[frameName]) {
+
+      this.callbacks[frameName].push(cb);
+    } else {
+      const newKey = objIndexOf(this.queue, frameName);//this.queue.indexOf(frameName.toString());
+      if (newKey !== -1) {
+        this.forcedQueue.unshift(this.queue.splice(newKey, 1).pop());
+        this._context._muteAllQueues(this.whatId);
+        this.unMute();
+        if (typeof cb === "function") {
+          if (typeof this.callbacks[frameName] !== "object") {
+            this.callbacks[frameName] = [];
+          }
+          this.callbacks[frameName].push(cb);
+        }
+        this.key = newKey; //set key to next year after gorced element (preload if user click play)
+      } else {
+        if (typeof this.callbacks[frameName] === "object") {
+          this.callbacks[frameName].push(cb);
+        } else {
+          this.callbacks[frameName] = [cb];
+        }
+      }
+    }
   }
 
 }
@@ -736,7 +741,7 @@ export default class DataStorage {
         _this._collectionPromises[dataId][whatId]["queue"].getNext().then(nextFrame => {
           if (nextFrame) {
             utils.defer(() => {
-              buildFrame(nextFrame, entitiesByKey, KEY, dataId, _this._collectionPromises[dataId][whatId]["queue"].frameComplete);
+              buildFrame(nextFrame, entitiesByKey, KEY, dataId, (...args) => _this._collectionPromises[dataId][whatId]["queue"].frameComplete(...args));
             });
           } else {
             //this goes to marker.js as a "response"
@@ -746,7 +751,7 @@ export default class DataStorage {
       };
       _this._collectionPromises[dataId][whatId]["queue"].getNext().then(nextFrame => {
         if (nextFrame) {
-          buildFrame(nextFrame, entitiesByKey, KEY, dataId, _this._collectionPromises[dataId][whatId]["queue"].frameComplete);
+          buildFrame(nextFrame, entitiesByKey, KEY, dataId, (...args) => _this._collectionPromises[dataId][whatId]["queue"].frameComplete(...args));
         }
       });
     });
